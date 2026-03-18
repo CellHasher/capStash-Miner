@@ -1,0 +1,6 @@
+target: exynos2100
+description: Exynos 2100 (Galaxy S21 international)
+mcpu: cortex-x1
+march: armv8.2-a+crc+crypto+dotprod+fp16
+ndk_api: 28
+built: 2026-03-18T01:56:41Z
