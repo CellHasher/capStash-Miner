@@ -1,0 +1,6 @@
+target: sd8gen3
+description: Snapdragon 8 Gen 3 (Galaxy S24, OnePlus 12)
+mcpu: cortex-x3
+march: armv9-a+crc+crypto+dotprod+fp16+i8mm
+ndk_api: 28
+built: 2026-03-18T01:50:13Z
