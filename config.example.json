@@ -1,0 +1,37 @@
+{
+    "_comment": "CapStash Miner Configuration",
+    "_comment2": "Copy this to config.json and fill in wallet_address",
+
+    "wallet_address": "cap1qYOUR_ADDRESS_HERE",
+
+    "threads": -1,
+    "_threads_help": "-1 = all cores, or set to specific number (e.g. 4 for big cores only)",
+
+    "worker_name": "phone-01",
+    "_worker_name_help": "Identifies this device in logs. Use unique names per phone for tracking.",
+
+    "coinbase_tag": "CellSwarm",
+    "_coinbase_tag_help": "Text embedded in mined blocks. Max ~20 chars, alphanumeric + basic punctuation.",
+
+    "target": "auto",
+    "_target_help": "SoC build target. 'auto' = detect automatically. Or specify: sd888, sd888_x1, tensor_g3, generic_v82, etc.",
+
+    "rpc_port": 8332,
+    "rpc_user": "miner",
+    "rpc_password": "",
+    "_rpc_password_help": "Auto-generated if empty. Only needed if you want to connect external tools.",
+
+    "max_connections": 16,
+    "dbcache": 256,
+    "_dbcache_help": "MB of RAM for UTXO cache. 256 is good for 12GB phones. Use 128 for 4-6GB phones.",
+
+    "maxmempool": 50,
+    "listen": true,
+    "txindex": false,
+
+    "addnodes": [],
+    "_addnodes_help": "Extra peer addresses to connect to. Example: [\"10.69.3.79:8333\", \"seed.capstash.io:8333\"]",
+
+    "autostart": true,
+    "_autostart_help": "If true, run.sh starts mining immediately after sync. If false, only syncs chain."
+}

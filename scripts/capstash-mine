@@ -1,0 +1,240 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# CapStash Miner CLI — single command, reads config.json, shows live stats
+# Usage:
+#   capstash-mine                    # start mining (reads ~/capstash/config.json)
+#   capstash-mine status             # show hashrate + stats
+#   capstash-mine stop               # stop mining
+#   capstash-mine start              # start/restart mining
+#   capstash-mine log                # tail daemon log
+#   capstash-mine config             # print current config
+#   capstash-mine address            # print mining address
+
+INSTALL_DIR="$HOME/capstash"
+BIN_DIR="$INSTALL_DIR/bin"
+DATA_DIR="$INSTALL_DIR/data"
+DAEMON="$BIN_DIR/CapStashd"
+CLI="$BIN_DIR/CapStash-cli -datadir=$DATA_DIR"
+CONFIG="$INSTALL_DIR/config.json"
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+DIM='\033[2m'
+NC='\033[0m'
+
+# ── Load config ──────────────────────────────────────────
+load_config() {
+    if [ ! -f "$CONFIG" ]; then
+        echo -e "${RED}No config.json found at $CONFIG${NC}"
+        echo "Create one with your wallet address. See config.example.json"
+        exit 1
+    fi
+    WALLET=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('wallet_address',''))" 2>/dev/null)
+    THREADS=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('threads',-1))" 2>/dev/null)
+    WORKER=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('worker_name',''))" 2>/dev/null)
+    TAG=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('coinbase_tag','CellSwarm'))" 2>/dev/null)
+    DBCACHE=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('dbcache',256))" 2>/dev/null)
+    MAXMEMPOOL=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('maxmempool',50))" 2>/dev/null)
+    ADDNODES=$(python3 -c "import json; nodes=json.load(open('$CONFIG')).get('addnodes',[]); [print(n) for n in nodes]" 2>/dev/null)
+
+    [ -z "$WORKER" ] && WORKER=$(getprop ro.product.model 2>/dev/null | tr ' ' '-' || echo "phone")
+    [ -z "$WALLET" ] && { echo -e "${RED}wallet_address is empty in config.json${NC}"; exit 1; }
+}
+
+# ── Ensure daemon is running ─────────────────────────────
+ensure_daemon() {
+    if $CLI getblockchaininfo >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # Write CapStash.conf from config.json
+    RPCPASS=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 24)
+    mkdir -p "$DATA_DIR"
+    cat > "$DATA_DIR/CapStash.conf" << CONF
+server=1
+daemon=1
+rpcuser=miner
+rpcpassword=$RPCPASS
+rpcallowip=127.0.0.1
+rpcbind=127.0.0.1
+listen=1
+dbcache=$DBCACHE
+maxmempool=$MAXMEMPOOL
+CONF
+    # Add custom nodes
+    for node in $ADDNODES; do
+        echo "addnode=$node" >> "$DATA_DIR/CapStash.conf"
+    done
+
+    echo -ne "${YELLOW}Starting daemon...${NC} "
+    "$DAEMON" -datadir="$DATA_DIR" -daemon 2>/dev/null
+    for i in $(seq 1 30); do
+        $CLI getblockchaininfo >/dev/null 2>&1 && { echo -e "${GREEN}OK${NC}"; return 0; }
+        sleep 2
+    done
+    echo -e "${RED}FAILED${NC}"
+    echo "Check: $DATA_DIR/debug.log"
+    exit 1
+}
+
+# ── Wait for sync ────────────────────────────────────────
+wait_sync() {
+    while true; do
+        INFO=$($CLI getblockchaininfo 2>/dev/null) || { sleep 5; continue; }
+        IBD=$(echo "$INFO" | grep initialblockdownload | grep -c true)
+        [ "$IBD" = "0" ] && { echo -e "\r${GREEN}Synced.${NC}          "; return; }
+        BLOCKS=$(echo "$INFO" | grep '"blocks"' | head -1 | tr -dc '0-9')
+        HEADERS=$(echo "$INFO" | grep '"headers"' | head -1 | tr -dc '0-9')
+        [ -n "$HEADERS" ] && [ "$HEADERS" -gt 0 ] 2>/dev/null && \
+            echo -ne "\r${YELLOW}Syncing:${NC} $BLOCKS/$HEADERS ($(( BLOCKS * 100 / HEADERS ))%)   "
+        sleep 5
+    done
+}
+
+# ── Show status ──────────────────────────────────────────
+show_status() {
+    if ! $CLI getblockchaininfo >/dev/null 2>&1; then
+        echo -e "${RED}Daemon not running.${NC} Start with: capstash-mine"
+        return 1
+    fi
+    INFO=$($CLI getmininginfo 2>/dev/null)
+    CHAIN=$($CLI getblockchaininfo 2>/dev/null)
+    NET=$($CLI getnetworkinfo 2>/dev/null)
+
+    BLOCKS=$(echo "$CHAIN" | grep '"blocks"' | head -1 | tr -dc '0-9')
+    HEADERS=$(echo "$CHAIN" | grep '"headers"' | head -1 | tr -dc '0-9')
+    CONNS=$(echo "$NET" | grep '"connections"' | head -1 | tr -dc '0-9')
+    MINING=$(echo "$INFO" | grep '"mining"' | grep -c true)
+    HR=$(echo "$INFO" | grep '"localhashps"' | head -1 | sed 's/[^0-9.]//g')
+    THRDS=$(echo "$INFO" | grep '"threads"' | head -1 | tr -dc '0-9')
+    FOUND=$(echo "$INFO" | grep '"localblocksfound"' | head -1 | tr -dc '0-9')
+    DIFF=$(echo "$INFO" | grep '"difficulty"' | head -1 | sed 's/[^0-9.]//g')
+    NETHASH=$(echo "$INFO" | grep '"networkhashps"' | head -1 | sed 's/[^0-9.]//g')
+
+    HR_MHS=$(echo "$HR" | awk '{printf "%.2f", $1/1000000}')
+    NET_MHS=$(echo "$NETHASH" | awk '{printf "%.1f", $1/1000000}')
+
+    load_config 2>/dev/null
+
+    echo ""
+    echo -e "${CYAN}  CapStash Miner${NC}"
+    echo -e "  ─────────────────────────────────────"
+    echo -e "  Chain      ${GREEN}$BLOCKS${NC} / $HEADERS blocks"
+    echo -e "  Peers      $CONNS connections"
+    echo -e "  Mining     $([ "$MINING" = "1" ] && echo -e "${GREEN}YES${NC}" || echo -e "${RED}NO${NC}")  ($THRDS threads)"
+    echo -e "  Hashrate   ${GREEN}${HR_MHS} MH/s${NC}  ${DIM}(network: ${NET_MHS} MH/s)${NC}"
+    echo -e "  Difficulty $DIFF"
+    echo -e "  Found      ${GREEN}$FOUND${NC} blocks"
+    echo -e "  Worker     $WORKER"
+    echo -e "  Address    ${DIM}$WALLET${NC}"
+    echo ""
+}
+
+# ── Live monitor ─────────────────────────────────────────
+live_monitor() {
+    echo -e "${CYAN}CapStash Miner — Live Monitor${NC}  ${DIM}(Ctrl+C to exit, miner keeps running)${NC}"
+    echo ""
+    while true; do
+        # Move cursor up to overwrite
+        INFO=$($CLI getmininginfo 2>/dev/null) || { sleep 5; continue; }
+        CHAIN=$($CLI getblockchaininfo 2>/dev/null) || { sleep 5; continue; }
+
+        BLOCKS=$(echo "$CHAIN" | grep '"blocks"' | head -1 | tr -dc '0-9')
+        HEADERS=$(echo "$CHAIN" | grep '"headers"' | head -1 | tr -dc '0-9')
+        HR=$(echo "$INFO" | grep '"localhashps"' | head -1 | sed 's/[^0-9.]//g')
+        THRDS=$(echo "$INFO" | grep '"threads"' | head -1 | tr -dc '0-9')
+        FOUND=$(echo "$INFO" | grep '"localblocksfound"' | head -1 | tr -dc '0-9')
+        DIFF=$(echo "$INFO" | grep '"difficulty"' | head -1 | sed 's/[^0-9.]//g')
+        BEST=$(echo "$INFO" | grep '"bestlocaldiffhit"' | head -1 | sed 's/[^0-9.]//g')
+
+        HR_MHS=$(echo "$HR" | awk '{printf "%.2f", $1/1000000}')
+        NOW=$(date '+%H:%M:%S')
+
+        echo -ne "\r  ${DIM}$NOW${NC}  ${GREEN}${HR_MHS} MH/s${NC}  ${THRDS}T  blk:$BLOCKS  found:${GREEN}$FOUND${NC}  diff:$DIFF  best:$BEST   "
+        sleep 10
+    done
+}
+
+# ── Main ─────────────────────────────────────────────────
+CMD="${1:-start}"
+
+case "$CMD" in
+    start|"")
+        load_config
+        ensure_daemon
+        wait_sync
+        echo -e "${CYAN}Mining:${NC} $THREADS threads -> ${DIM}$WALLET${NC}"
+        $CLI setgenerate true $THREADS "$WALLET" "$TAG" >/dev/null 2>&1
+        echo ""
+        show_status
+        echo -e "${DIM}  Watching hashrate... (Ctrl+C to detach, miner keeps running)${NC}"
+        echo ""
+        live_monitor
+        ;;
+
+    stop)
+        echo -ne "Stopping miner... "
+        $CLI setgenerate false 2>/dev/null && echo -e "${GREEN}OK${NC}" || echo -e "${YELLOW}not running${NC}"
+        ;;
+
+    shutdown)
+        echo -ne "Stopping miner... "
+        $CLI setgenerate false 2>/dev/null
+        echo -ne "Stopping daemon... "
+        $CLI stop 2>/dev/null && echo -e "${GREEN}OK${NC}" || echo -e "${YELLOW}not running${NC}"
+        ;;
+
+    status|stats|info)
+        load_config 2>/dev/null
+        show_status
+        ;;
+
+    watch|monitor)
+        load_config 2>/dev/null
+        live_monitor
+        ;;
+
+    log|logs)
+        tail -f "$DATA_DIR/debug.log" 2>/dev/null || echo "No log file found."
+        ;;
+
+    config)
+        if [ -f "$CONFIG" ]; then
+            python3 -c "import json; print(json.dumps(json.load(open('$CONFIG')), indent=2))" 2>/dev/null || cat "$CONFIG"
+        else
+            echo "No config.json found."
+        fi
+        ;;
+
+    address|addr)
+        load_config
+        echo "$WALLET"
+        ;;
+
+    help|--help|-h)
+        echo "Usage: capstash-mine [command]"
+        echo ""
+        echo "Commands:"
+        echo "  start       Start daemon + miner, show live hashrate (default)"
+        echo "  stop        Stop mining (daemon stays running)"
+        echo "  shutdown    Stop mining + daemon"
+        echo "  status      Show current mining stats"
+        echo "  watch       Live hashrate monitor"
+        echo "  log         Tail daemon log"
+        echo "  config      Print current config.json"
+        echo "  address     Print mining wallet address"
+        echo "  help        This help"
+        echo ""
+        echo "Config: ~/capstash/config.json"
+        echo ""
+        echo "The miner runs in the background — Ctrl+C just detaches the"
+        echo "monitor, it doesn't stop mining. Use 'capstash-mine stop' to stop."
+        ;;
+
+    *)
+        echo "Unknown command: $CMD"
+        echo "Run 'capstash-mine help' for usage."
+        exit 1
+        ;;
+esac

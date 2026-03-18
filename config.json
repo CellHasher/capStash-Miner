@@ -1,0 +1,17 @@
+{
+    "wallet_address": "",
+    "threads": -1,
+    "worker_name": "",
+    "coinbase_tag": "CellSwarm",
+    "target": "auto",
+    "rpc_port": 8332,
+    "rpc_user": "miner",
+    "rpc_password": "",
+    "max_connections": 16,
+    "dbcache": 256,
+    "maxmempool": 50,
+    "listen": true,
+    "txindex": false,
+    "addnodes": [],
+    "autostart": true
+}
