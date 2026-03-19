@@ -1,0 +1,6 @@
+target: exynos7420
+description: Exynos 7420 (Galaxy S6/S6 Edge/Note 5)
+mcpu: cortex-a57
+march: armv8-a+crc+crypto
+ndk_api: 28
+built: 2026-03-19T23:01:30Z
