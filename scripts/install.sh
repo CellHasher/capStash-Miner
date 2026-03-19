@@ -6,7 +6,7 @@ set -e
 INSTALL_DIR="$HOME/capstash"
 DATA_DIR="$HOME/capstash/data"
 BIN_DIR="$HOME/capstash/bin"
-REPO_URL="https://github.com/lukewrightmain/capstash-miner"
+REPO_URL="https://github.com/CellHasher/capstash-miner"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Colors
